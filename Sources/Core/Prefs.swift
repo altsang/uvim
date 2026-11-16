@@ -27,6 +27,8 @@ public enum Prefs {
     static let clipboardModeKey = "clipboardMode"
     static let clipboardOverridesKey = "clipboardOverrides"
     static let appliedSeedsKey = "appliedSeedBundleIDs"
+    static let toggleShortcutKey = "toggleShortcutEnabled"
+    static let hasEngagedKey = "hasEngagedNormalMode"
 
     /// Where every setting lives; tests swap in a private suite.
     nonisolated(unsafe) static var store = UserDefaults.standard
@@ -53,6 +55,22 @@ public enum Prefs {
         "com.vscodium",
         "com.exafunction.windsurf",
     ]
+    /// Display names for the built-in list, for when the app is not installed and macOS cannot name it.
+    public static let builtInNames: [String: String] = [
+        "com.apple.Terminal": "Terminal", "com.googlecode.iterm2": "iTerm", "net.kovidgoyal.kitty": "kitty",
+        "org.alacritty": "Alacritty", "com.github.wez.wezterm": "WezTerm", "com.mitchellh.ghostty": "Ghostty",
+        "dev.warp.Warp-Stable": "Warp", "com.microsoft.VSCode": "Visual Studio Code",
+        "com.todesktop.230313mzl4w4u92": "Cursor", "com.apple.dt.Xcode": "Xcode", "dev.zed.Zed": "Zed",
+        "com.qvacua.VimR": "VimR", "com.neovide.neovide": "Neovide",
+        "com.microsoft.VSCodeInsiders": "VS Code Insiders", "com.vscodium": "VSCodium",
+        "com.exafunction.windsurf": "Windsurf",
+    ]
+
+    /// Whether an app is on the built-in Off list.
+    public static func isBuiltInOff(_ bundleID: String) -> Bool {
+        seedDisabledIDs.contains(bundleID)
+    }
+
     /// The seeds upstream shipped, which an install that predates seed tracking already has.
     static let upstreamSeedCount = 13
     static let seedDisabledPrefixes = ["com.jetbrains."]
@@ -88,6 +106,18 @@ public enum Prefs {
                 ?? .escape
         }
         set { store.set(newValue.rawValue, forKey: normalModeKeyKey) }
+    }
+
+    /// ⌃⌥⌘V turns Vim Mode on or off from any app; on until the user turns it off.
+    public static var toggleShortcutEnabled: Bool {
+        get { store.object(forKey: toggleShortcutKey) as? Bool ?? true }
+        set { store.set(newValue, forKey: toggleShortcutKey) }
+    }
+
+    /// Whether Normal mode was ever entered: until then the panel teaches the first Esc.
+    public static var hasEngaged: Bool {
+        get { store.object(forKey: hasEngagedKey) as? Bool ?? false }
+        set { store.set(newValue, forKey: hasEngagedKey) }
     }
 
     /// Everywhere but Off apps (upstream), or only apps set to Auto or Force.

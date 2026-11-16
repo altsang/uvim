@@ -18,6 +18,10 @@ public final class Controller {
         }
     }
 
+    /// ⌃⌥⌘V turns Vim Mode on or off from any app (fork); the tap sees it even while disabled.
+    public var toggleShortcutEnabled = true
+    public var onToggleShortcut: (() -> Void)?
+
     /// Physical Esc engages Normal mode alongside ⌃[: the menu's Normal Mode Key.
     public var escapeEngages = false
 
@@ -176,6 +180,10 @@ public final class Controller {
         if event.kind == .keyDown, event.mods.contains(.command), event.characters.lowercased() == "v" || event.keyCode == 9 {
             PasteboardLoan.shared.restore()
         }
+        if toggleShortcutEnabled, event.kind == .keyDown, Self.isToggleShortcut(event) {
+            if !event.isRepeat { onToggleShortcut?() }
+            return true
+        }
         guard enabled, event.kind == .keyDown else { return false }
         // ⌃f/⌃b always tokenize; the field a command runs on may hand them back below.
         guard let token = gate(event, profile: Self.readsAppKeys) else {
@@ -309,6 +317,11 @@ public final class Controller {
     private static let readsAppKeys = CapabilityProfile(available: [.nativeMotions])
 
     private static let engageTokens: Set<String> = ["<C-[>", "<Esc>"]
+
+    /// ⌃⌥⌘V exactly (Fn ignored): kVK_ANSI_V is 9 on every layout's key position.
+    static func isToggleShortcut(_ event: KeyEvent) -> Bool {
+        event.keyCode == 9 && event.mods.subtracting(.fn) == [.control, .option, .command]
+    }
 
     private func gate(_ event: KeyEvent, profile: CapabilityProfile) -> String? {
         KeyNotation.token(for: event, profile: profile, escapeEngages: escapeEngages)

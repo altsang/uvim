@@ -3,9 +3,9 @@ import Core
 import SwiftUI
 import Vim
 
-/// uvim's composition root: a menu-bar agent (LSUIElement) whose only UI is
-/// the status menu. The tap feeds the `Controller`; everything else is
-/// permission plumbing.
+/// uvim's composition root: a menu-bar agent (LSUIElement). The menu-bar icon opens the panel;
+/// the Settings window holds everything that applies to all apps. The tap feeds the `Controller`;
+/// everything else is permission plumbing.
 @main
 struct UvimApp: App {
     @StateObject private var model = AppModel()
@@ -13,80 +13,15 @@ struct UvimApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            Toggle("Vim Mode", isOn: $model.vimEnabled)
-            Picker("Normal Mode Key", selection: $model.normalModeKey) {
-                Text("Esc").tag(NormalModeKey.escape)
-                Text("⌃[").tag(NormalModeKey.controlBracket)
-            }
-            Picker("Clipboard", selection: $model.clipboardMode) {
-                ForEach(ClipboardMode.allCases, id: \.self) { Text($0.label).tag($0) }
-            }
-            Button("Apps…") { model.showApps() }
-            if let front = model.frontApp {
-                Picker("Vim in \(front.name)", selection: Binding(
-                    get: { model.frontAppPolicy },
-                    set: { model.setFrontAppPolicy($0) }
-                )) {
-                    Text("Auto").tag(VimPolicy.auto)
-                    Text("Off").tag(VimPolicy.off)
-                    Text("Force").tag(VimPolicy.forced)
-                }
-                CapabilitiesItem(
-                    title: "Capabilities in \(model.surfaceLabel)", menu: model.capabilities,
-                    choose: model.setCapabilityOverride, forget: model.forget, clear: model.clearOverrides
-                )
-            }
-            Divider()
-            Text(model.tap == .installed ? "Input tap: running"
-                : model.handoverFailed ? "Input tap: not installed — quit and reopen uvim" : "Input tap: not installed")
-                .onAppear { model.refresh() }
-            Button(model.accessibilityTrusted ? "Accessibility: granted" : "Accessibility: not granted") {
-                model.openPrivacyPane("Privacy_Accessibility")
-            }
-            if model.tap == .refused {
-                Button(model.inputMonitoringGranted
-                    ? "Input Monitoring: granted"
-                    : "Input Monitoring: not granted — grant, then relaunch") {
-                    model.openPrivacyPane("Privacy_ListenEvent")
-                }
-            }
-            Divider()
-            // Checked answers "will uvim start at login?" — a revoked item is not.
-            Toggle("Start at Login", isOn: Binding(
-                get: { model.loginItem == .on },
-                set: { model.setLaunchAtLogin($0) }
-            ))
-            if model.loginItem == .blocked {
-                Button("Approve uvim in Login Items Settings") { model.openLoginItemsSettings() }
-            }
-            Button(model.beliefsReadable ? "Open Beliefs File" : "Open Beliefs File — unreadable, last good version in use") {
-                model.openBeliefsFile()
-            }
-            if let updater {
-                Divider()
-                UpdateItems(updater: updater)
-            }
-            Divider()
-            Button("Quit uvim") { NSApplication.shared.terminate(nil) }
+            PanelView(model: model)
         } label: {
-            Image(systemName: model.icon.symbolName)
+            Image(nsImage: MenuBarGlyph.image(for: model.icon))
         }
-    }
-}
-
-/// Its own view so the menu observes `Updater`, which `AppModel` does not own.
-private struct UpdateItems: View {
-    @ObservedObject var updater: Updater
-
-    var body: some View {
-        Button(updater.pendingVersion.map { "Update to uvim \($0)…" } ?? "Check for Updates…") {
-            updater.checkForUpdates()
+        .menuBarExtraStyle(.window)
+        Settings {
+            SettingsView(model: model, updater: updater)
         }
-        .disabled(!updater.canCheckForUpdates)
-        Toggle("Check for Updates Automatically", isOn: Binding(
-            get: { updater.automaticallyChecksForUpdates },
-            set: { updater.setAutomaticallyChecksForUpdates($0) }
-        ))
+        .windowResizability(.contentSize)
     }
 }
 
@@ -182,13 +117,15 @@ final class AppModel: ObservableObject {
 
     /// The menu-bar icon: the only mode display where uvim draws no block cursor.
     enum Icon {
-        case off, permissionMissing, idle, insert, normal, visual, replace
+        case off, permissionMissing, offHere, idle, insert, normal, visual, replace
 
-        init(vimEnabled: Bool, permitted: Bool, secureInput: Bool, mode: VimState.Mode?) {
+        init(vimEnabled: Bool, permitted: Bool, secureInput: Bool, mode: VimState.Mode?, offHere: Bool = false) {
             if !vimEnabled {
                 self = .off
             } else if !permitted {
                 self = .permissionMissing
+            } else if offHere {
+                self = .offHere
             } else {
                 switch secureInput ? nil : mode {
                 case nil: self = .idle
@@ -200,16 +137,17 @@ final class AppModel: ObservableObject {
             }
         }
 
-        /// Outlined where keys type, filled where they are commands.
-        var symbolName: String {
+        /// What VoiceOver says for the menu-bar icon.
+        var label: String {
             switch self {
-            case .off: return "square.slash"
-            case .permissionMissing: return "exclamationmark.square"
-            case .idle: return "square.dashed"
-            case .insert: return "i.square"
-            case .normal: return "n.square.fill"
-            case .visual: return "v.square.fill"
-            case .replace: return "r.square"
+            case .off: return "uvim, Vim Mode off"
+            case .permissionMissing: return "uvim, needs permission"
+            case .offHere: return "uvim, off in this app"
+            case .idle: return "uvim, on in this app, no text field"
+            case .insert: return "uvim, Insert mode"
+            case .normal: return "uvim, Normal mode"
+            case .visual: return "uvim, Visual mode"
+            case .replace: return "uvim, Replace mode"
             }
         }
     }
@@ -293,6 +231,14 @@ final class AppModel: ObservableObject {
     @Published private(set) var secureInput = false
     @Published private(set) var frontApp: FrontApp?
     @Published private(set) var frontAppPolicy: VimPolicy = .auto
+    @Published private(set) var frontAppClipboard: ClipboardMode?
+    @Published private(set) var hasEngaged = Prefs.hasEngaged
+    @Published var toggleShortcutEnabled = Prefs.toggleShortcutEnabled {
+        didSet {
+            Prefs.toggleShortcutEnabled = toggleShortcutEnabled
+            controller.toggleShortcutEnabled = toggleShortcutEnabled
+        }
+    }
     @Published private(set) var capabilities = CapabilityMenu()
     @Published private(set) var beliefsReadable = true
     @Published private(set) var loginItem: LoginItem.State = .off
@@ -321,7 +267,7 @@ final class AppModel: ObservableObject {
     var icon: Icon {
         Icon(
             vimEnabled: vimEnabled, permitted: accessibilityTrusted && tap == .installed,
-            secureInput: secureInput, mode: mode
+            secureInput: secureInput, mode: mode, offHere: frontApp != nil && frontAppPolicy == .off
         )
     }
 
@@ -349,7 +295,15 @@ final class AppModel: ObservableObject {
             controller.enabled = false
         }
         controller.escapeEngages = normalModeKey == .escape
-        controller.onModeChange = { [weak self] mode in self?.mode = mode }
+        controller.onModeChange = { [weak self] mode in
+            self?.mode = mode
+            if case .normal? = mode, self?.hasEngaged == false {
+                Prefs.hasEngaged = true
+                self?.hasEngaged = true
+            }
+        }
+        controller.toggleShortcutEnabled = Prefs.toggleShortcutEnabled
+        controller.onToggleShortcut = { [weak self] in self?.vimEnabled.toggle() }
         // Its own channel, deliberately: mode changes do NOT ride every rebind
         // — publishMode early-returns when the indicator is unchanged, so
         // moving between two Normal-mode fields fired nothing and the rows kept
@@ -422,6 +376,7 @@ final class AppModel: ObservableObject {
               let bundleID = app.bundleIdentifier else { return }
         frontApp = FrontApp(name: app.localizedName ?? bundleID, bundleID: bundleID)
         frontAppPolicy = Prefs.policy(for: bundleID)
+        frontAppClipboard = Prefs.clipboardOverride(for: bundleID)
         refreshCapabilityRows()
     }
 
@@ -437,6 +392,7 @@ final class AppModel: ObservableObject {
             frontApp = FrontApp(name: app.localizedName ?? bundleID, bundleID: bundleID)
         }
         frontAppPolicy = frontApp.map { Prefs.policy(for: $0.bundleID) } ?? .auto
+        frontAppClipboard = frontApp.flatMap { Prefs.clipboardOverride(for: $0.bundleID) }
         refreshCapabilityRows()
     }
 
@@ -448,7 +404,93 @@ final class AppModel: ObservableObject {
         reloadApps()
     }
 
-    // MARK: - Apps window (fork)
+    // MARK: - Panel (fork redesign)
+
+    /// The panel's one status line: the icon already shows the mode's shape.
+    var statusLine: String {
+        guard vimEnabled else { return "Vim Mode is off" }
+        guard let frontApp else { return "Ready" }
+        if frontAppPolicy == .off { return "Off in \(frontApp.name)" }
+        switch mode {
+        case .normal?: return "Normal · \(frontApp.name)"
+        case .insert?: return "Insert · \(frontApp.name)"
+        case .visual?: return "Visual · \(frontApp.name)"
+        case .replace?: return "Replace · \(frontApp.name)"
+        case nil: return hasEngaged ? "Ready" : "Press Esc in a text field to start"
+        }
+    }
+
+    struct SetupWarning: Equatable {
+        let message: String
+        let action: SetupAction?
+    }
+
+    enum SetupAction: Equatable {
+        case accessibility, inputMonitoring, relaunch
+
+        var title: String {
+            switch self {
+            case .accessibility: "Allow Accessibility…"
+            case .inputMonitoring: "Allow Input Monitoring…"
+            case .relaunch: "Quit uvim"
+            }
+        }
+    }
+
+    /// What stands between uvim and your keys, as one line with one action; nil when nothing does.
+    var setupWarning: SetupWarning? {
+        if !accessibilityTrusted {
+            return SetupWarning(message: "uvim can't read text fields yet", action: .accessibility)
+        }
+        if handoverFailed {
+            return SetupWarning(message: "Quit and reopen uvim to finish setup", action: .relaunch)
+        }
+        if tap == .refused {
+            return SetupWarning(message: "uvim can't see your keys yet", action: .inputMonitoring)
+        }
+        return nil
+    }
+
+    func perform(_ action: SetupAction) {
+        switch action {
+        case .accessibility: openPrivacyPane("Privacy_Accessibility")
+        case .inputMonitoring: openPrivacyPane("Privacy_ListenEvent")
+        case .relaunch: NSApplication.shared.terminate(nil)
+        }
+    }
+
+    func setFrontAppClipboard(_ mode: ClipboardMode?) {
+        guard let frontApp else { return }
+        setClipboard(mode, for: frontApp.bundleID)
+        frontAppClipboard = mode
+    }
+
+    /// One app's own settings, kept so a Remove can be undone.
+    struct AppSnapshot: Equatable {
+        let id: String
+        let name: String
+        let policy: VimPolicy
+        let clipboard: ClipboardMode?
+    }
+
+    func removeApps(_ ids: Set<String>) -> [AppSnapshot] {
+        let snapshots = apps.filter { ids.contains($0.id) }.map {
+            AppSnapshot(id: $0.id, name: $0.name, policy: $0.policy, clipboard: $0.clipboard)
+        }
+        snapshots.forEach { Prefs.forget(bundleID: $0.id) }
+        policiesChanged()
+        return snapshots
+    }
+
+    func restore(_ snapshots: [AppSnapshot]) {
+        for snapshot in snapshots {
+            Prefs.setPolicy(snapshot.policy, for: snapshot.id)
+            Prefs.setClipboardOverride(snapshot.clipboard, for: snapshot.id)
+        }
+        policiesChanged()
+    }
+
+    // MARK: - Apps list (fork)
 
     struct AppRow: Identifiable, Equatable {
         let id: String
@@ -479,24 +521,30 @@ final class AppModel: ObservableObject {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    func showApps() {
-        AppsWindow.shared.show(model: self)
-    }
+    /// Built-in Off apps not installed here: kept out of the list, still Off if installed later.
+    @Published private(set) var hiddenBuiltIns: [String] = []
 
     func reloadApps() {
         let workspace = NSWorkspace.shared
-        apps = Prefs.configuredApps().map { id in
+        var hidden: [String] = []
+        apps = Prefs.configuredApps().compactMap { id in
             let url = workspace.urlForApplication(withBundleIdentifier: id)
+            let policy = Prefs.policy(for: id)
+            let clipboard = Prefs.clipboardOverride(for: id)
+            if url == nil, Prefs.isBuiltInOff(id), policy == .off, clipboard == nil {
+                hidden.append(Prefs.builtInNames[id] ?? id)
+                return nil
+            }
             let name = url.map { FileManager.default.displayName(atPath: $0.path) }
-                .map { $0.hasSuffix(".app") ? String($0.dropLast(4)) : $0 } ?? id
+                .map { $0.hasSuffix(".app") ? String($0.dropLast(4)) : $0 }
+                ?? Prefs.builtInNames[id] ?? id
             let icon = url.map { workspace.icon(forFile: $0.path) }
                 ?? NSImage(systemSymbolName: "app.dashed", accessibilityDescription: nil) ?? NSImage()
-            return AppRow(
-                id: id, name: name, icon: icon, installed: url != nil,
-                policy: Prefs.policy(for: id), clipboard: Prefs.clipboardOverride(for: id)
-            )
+            return AppRow(id: id, name: name, icon: icon, installed: url != nil, policy: policy, clipboard: clipboard)
         }
-        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        // Installed apps first, then by name.
+        .sorted { ($0.installed ? 0 : 1, $0.name.lowercased()) < ($1.installed ? 0 : 1, $1.name.lowercased()) }
+        hiddenBuiltIns = hidden.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
     func setPolicy(_ policy: VimPolicy, for bundleID: String) {
@@ -543,6 +591,7 @@ final class AppModel: ObservableObject {
     private func policiesChanged() {
         controller.refreshPolicy()
         frontAppPolicy = frontApp.map { Prefs.policy(for: $0.bundleID) } ?? .auto
+        frontAppClipboard = frontApp.flatMap { Prefs.clipboardOverride(for: $0.bundleID) }
         reloadApps()
     }
 

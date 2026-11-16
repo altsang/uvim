@@ -44,6 +44,13 @@ check(Prefs.policy(for: "com.apple.Notes") == .auto, "other apps are Auto")
 check(Prefs.clipboardMode == .yank, "yanks reach the clipboard by default")
 check(Prefs.appScope == .everywhere)
 
+check(Prefs.toggleShortcutEnabled, "⌃⌥⌘V is on until turned off")
+Prefs.toggleShortcutEnabled = false
+check(!Prefs.toggleShortcutEnabled, "turning ⌃⌥⌘V off sticks")
+check(!Prefs.hasEngaged, "the first-Esc tip shows until Normal mode is entered")
+Prefs.hasEngaged = true
+check(Prefs.hasEngaged)
+
 // Only these apps.
 Prefs.appScope = .onlyAllowed
 check(Prefs.policy(for: "com.apple.Notes") == .off, "only-allowed: an app never set is Off")
