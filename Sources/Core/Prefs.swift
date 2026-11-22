@@ -28,6 +28,9 @@ public enum Prefs {
     static let clipboardOverridesKey = "clipboardOverrides"
     static let appliedSeedsKey = "appliedSeedBundleIDs"
     static let toggleShortcutKey = "toggleShortcutEnabled"
+    static let escapeToAppIDsKey = "escapeToAppBundleIDs"
+    /// Apps where Esc stops work in progress, so it reaches them and ⌃[ enters Normal mode.
+    static let seedEscapeToAppIDs = ["com.anthropic.claudefordesktop"]
     static let hasEngagedKey = "hasEngagedNormalMode"
 
     /// Where every setting lives; tests swap in a private suite.
@@ -86,6 +89,7 @@ public enum Prefs {
             enabledIDsKey: [String](),
             forcedIDsKey: [String](),   // forced is opt-in: never seeded
             allowedIDsKey: [String](),
+            escapeToAppIDsKey: seedEscapeToAppIDs,
         ])
         applyNewSeeds()
     }
@@ -147,6 +151,25 @@ public enum Prefs {
         clipboardOverride(for: bundleID) ?? clipboardMode
     }
 
+    /// Whether Esc goes to this app even when Esc enters Normal mode elsewhere (⌃[ still does here).
+    public static func escapeReachesApp(_ bundleID: String) -> Bool {
+        escapeToAppIDs.contains(bundleID)
+    }
+
+    public static func setEscapeReachesApp(_ reaches: Bool, for bundleID: String) {
+        var ids = escapeToAppIDs.filter { $0 != bundleID }
+        if reaches { ids.append(bundleID) }
+        store.set(ids, forKey: escapeToAppIDsKey)
+    }
+
+    public static var escapeToAppIDs: [String] { stringArray(escapeToAppIDsKey) }
+
+    /// A built-in Esc entry nobody changed and nothing else set for the app: its row can hide while the app is missing.
+    public static func isUntouchedEscapeSeed(_ bundleID: String) -> Bool {
+        seedEscapeToAppIDs.contains(bundleID) && escapeReachesApp(bundleID) && clipboardOverride(for: bundleID) == nil
+            && ![disabledIDsKey, enabledIDsKey, forcedIDsKey, allowedIDsKey].contains { stringArray($0).contains(bundleID) }
+    }
+
     private static var clipboardOverrides: [String: String] {
         store.dictionary(forKey: clipboardOverridesKey) as? [String: String] ?? [:]
     }
@@ -155,7 +178,7 @@ public enum Prefs {
     /// chosen in the menu or the window, or given a clipboard setting.
     public static func configuredApps() -> [String] {
         let ids = stringArray(disabledIDsKey) + stringArray(enabledIDsKey) + stringArray(forcedIDsKey)
-            + stringArray(allowedIDsKey) + Array(clipboardOverrides.keys)
+            + stringArray(allowedIDsKey) + Array(clipboardOverrides.keys) + escapeToAppIDs
         return Array(Set(ids)).sorted()
     }
 
@@ -168,12 +191,13 @@ public enum Prefs {
             store.set(stringArray(key).filter { $0 != bundleID }, forKey: key)
         }
         setClipboardOverride(nil, for: bundleID)
+        setEscapeReachesApp(false, for: bundleID)
     }
 
     /// Back to the built-in Off list: every app's setting goes; the global ones stay.
     public static func resetApps() {
         for key in [disabledIDsKey, disabledPrefixesKey, enabledIDsKey, forcedIDsKey, allowedIDsKey,
-                    clipboardOverridesKey] {
+                    clipboardOverridesKey, escapeToAppIDsKey] {
             store.removeObject(forKey: key)
         }
         store.set(seedDisabledIDs, forKey: appliedSeedsKey)

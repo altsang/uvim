@@ -98,6 +98,13 @@ struct PanelView: View {
             }
             .disabled(model.frontAppPolicy == .off)
             .help("Choose what yanks and deletes copy in \(front.name)")
+            if model.frontAppPolicy != .off, model.normalModeKey == .escape {
+                Toggle("Esc goes to \(front.name); ⌃[ enters Normal mode", isOn: Binding(
+                    get: { model.frontAppEscapeToApp },
+                    set: { model.setFrontAppEscapeToApp($0) }
+                ))
+                .help("For apps where Esc stops or cancels something, such as Claude")
+            }
             if model.frontAppPolicy != .off {
                 CapabilitiesItem(
                     title: "Field Capabilities", menu: model.capabilities,
@@ -122,7 +129,7 @@ struct PanelView: View {
                 Text("⌃[").tag(NormalModeKey.controlBracket)
             }
             .pickerStyle(.segmented)
-            .help("Choose the key that enters Normal mode; ⌃[ always works")
+            .help("Choose the key that enters Normal mode; ⌃[ always works, and apps set to pass Esc through keep it")
         }
     }
 

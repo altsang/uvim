@@ -24,6 +24,8 @@ public final class Controller {
 
     /// Physical Esc engages Normal mode alongside ⌃[: the menu's Normal Mode Key.
     public var escapeEngages = false
+    /// Apps that get Esc even while `escapeEngages`: ⌃[ is their Normal-mode key.
+    public var escapeToApps: Set<String> = []
 
     /// Mode channel for the menu-bar indicator, nil while unbound; setting it publishes the current mode.
     public var onModeChange: ((VimState.Mode?) -> Void)? {
@@ -324,7 +326,14 @@ public final class Controller {
     }
 
     private func gate(_ event: KeyEvent, profile: CapabilityProfile) -> String? {
-        KeyNotation.token(for: event, profile: profile, escapeEngages: escapeEngages)
+        KeyNotation.token(for: event, profile: profile, escapeEngages: escapeEngagesInFront)
+    }
+
+    /// Keyed on the frontmost app: the first gate runs before any binding is known.
+    private var escapeEngagesInFront: Bool {
+        guard escapeEngages, !escapeToApps.isEmpty,
+              let id = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return escapeEngages }
+        return !escapeToApps.contains(id)
     }
 
     /// The session's button presses and releases, which the window server counts in step with the tap's keys, as no monitor does.

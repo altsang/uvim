@@ -234,6 +234,18 @@ private struct AppsTab: View {
                     : "Choose what yanks and deletes copy in \(row.name)")
             }
             .width(min: 140, ideal: 160)
+            TableColumn("Esc to App") { row in
+                Toggle("Esc goes to \(row.name)", isOn: Binding(
+                    get: { row.escapeToApp },
+                    set: { model.setEscapeToApp($0, for: row.id) }
+                ))
+                .labelsHidden()
+                .opacity(row.policy == .off ? 0 : 1)
+                .disabled(row.policy == .off)
+                .help(row.policy == .off ? "Not used while Vim is Off in \(row.name)"
+                    : "Esc goes to \(row.name) and ⌃[ enters Normal mode, for apps where Esc stops something")
+            }
+            .width(min: 60, ideal: 70)
         }
         .frame(height: 240)
         .contextMenu(forSelectionType: String.self) { ids in

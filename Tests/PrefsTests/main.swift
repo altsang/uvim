@@ -86,6 +86,18 @@ check(Prefs.clipboardOverride(for: "com.apple.Mail") == nil, "no override until 
 Prefs.setClipboardOverride(nil, for: "com.apple.Notes")
 check(Prefs.clipboardMode(for: "com.apple.Notes") == .unnamed, "clearing it follows the default again")
 
+// Esc reaching the app: Claude by default, set per app, dropped by forget, back on reset.
+check(Prefs.escapeReachesApp("com.anthropic.claudefordesktop"), "Esc reaches Claude until the user changes it")
+check(!Prefs.escapeReachesApp("com.apple.Notes"), "other apps take Esc for Normal mode")
+Prefs.setEscapeReachesApp(true, for: "com.example.Esc")
+Prefs.setEscapeReachesApp(true, for: "com.example.Esc")
+check(Prefs.escapeToAppIDs.filter { $0 == "com.example.Esc" }.count == 1, "setting it twice keeps one entry")
+check(Prefs.configuredApps().contains("com.example.Esc"), "an Esc-only app has a row")
+Prefs.forget(bundleID: "com.example.Esc")
+check(!Prefs.escapeReachesApp("com.example.Esc"), "forget drops it")
+Prefs.setEscapeReachesApp(false, for: "com.anthropic.claudefordesktop")
+check(!Prefs.escapeReachesApp("com.anthropic.claudefordesktop"), "turning the seed off sticks")
+
 // The Apps window's list, forget and reset.
 Prefs.setClipboardOverride(.yank, for: "com.apple.Mail")
 let listed = Prefs.configuredApps()
@@ -101,6 +113,7 @@ Prefs.resetApps()
 check(Prefs.policy(for: "com.microsoft.VSCode") == .off, "reset brings the built-in list back")
 check(Prefs.policy(for: "com.apple.Notes") == .auto, "reset drops the user's own choices")
 check(Prefs.clipboardMode == .unnamed, "reset keeps the global settings")
+check(Prefs.escapeReachesApp("com.anthropic.claudefordesktop"), "reset brings the Claude seed back")
 
 // A seed added in a later build reaches an install whose user already wrote the list.
 suite.clear()

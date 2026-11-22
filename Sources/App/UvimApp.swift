@@ -232,6 +232,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var frontApp: FrontApp?
     @Published private(set) var frontAppPolicy: VimPolicy = .auto
     @Published private(set) var frontAppClipboard: ClipboardMode?
+    @Published private(set) var frontAppEscapeToApp = false
     @Published private(set) var hasEngaged = Prefs.hasEngaged
     @Published var toggleShortcutEnabled = Prefs.toggleShortcutEnabled {
         didSet {
@@ -295,6 +296,7 @@ final class AppModel: ObservableObject {
             controller.enabled = false
         }
         controller.escapeEngages = normalModeKey == .escape
+        controller.escapeToApps = Set(Prefs.escapeToAppIDs)
         controller.onModeChange = { [weak self] mode in
             self?.mode = mode
             if case .normal? = mode, self?.hasEngaged == false {
@@ -377,6 +379,7 @@ final class AppModel: ObservableObject {
         frontApp = FrontApp(name: app.localizedName ?? bundleID, bundleID: bundleID)
         frontAppPolicy = Prefs.policy(for: bundleID)
         frontAppClipboard = Prefs.clipboardOverride(for: bundleID)
+        frontAppEscapeToApp = Prefs.escapeReachesApp(bundleID)
         refreshCapabilityRows()
     }
 
@@ -393,6 +396,7 @@ final class AppModel: ObservableObject {
         }
         frontAppPolicy = frontApp.map { Prefs.policy(for: $0.bundleID) } ?? .auto
         frontAppClipboard = frontApp.flatMap { Prefs.clipboardOverride(for: $0.bundleID) }
+        frontAppEscapeToApp = frontApp.map { Prefs.escapeReachesApp($0.bundleID) } ?? false
         refreshCapabilityRows()
     }
 
@@ -459,6 +463,12 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func setFrontAppEscapeToApp(_ reaches: Bool) {
+        guard let frontApp else { return }
+        Prefs.setEscapeReachesApp(reaches, for: frontApp.bundleID)
+        policiesChanged()
+    }
+
     func setFrontAppClipboard(_ mode: ClipboardMode?) {
         guard let frontApp else { return }
         setClipboard(mode, for: frontApp.bundleID)
@@ -471,11 +481,15 @@ final class AppModel: ObservableObject {
         let name: String
         let policy: VimPolicy
         let clipboard: ClipboardMode?
+        let escapeToApp: Bool
     }
 
     func removeApps(_ ids: Set<String>) -> [AppSnapshot] {
         let snapshots = apps.filter { ids.contains($0.id) }.map {
-            AppSnapshot(id: $0.id, name: $0.name, policy: $0.policy, clipboard: $0.clipboard)
+            AppSnapshot(
+                id: $0.id, name: $0.name, policy: $0.policy, clipboard: $0.clipboard,
+                escapeToApp: Prefs.escapeReachesApp($0.id)
+            )
         }
         snapshots.forEach { Prefs.forget(bundleID: $0.id) }
         policiesChanged()
@@ -486,6 +500,7 @@ final class AppModel: ObservableObject {
         for snapshot in snapshots {
             Prefs.setPolicy(snapshot.policy, for: snapshot.id)
             Prefs.setClipboardOverride(snapshot.clipboard, for: snapshot.id)
+            Prefs.setEscapeReachesApp(snapshot.escapeToApp, for: snapshot.id)
         }
         policiesChanged()
     }
@@ -499,6 +514,7 @@ final class AppModel: ObservableObject {
         let installed: Bool
         let policy: VimPolicy
         let clipboard: ClipboardMode?
+        let escapeToApp: Bool
     }
 
     struct RunningApp: Identifiable {
@@ -531,6 +547,8 @@ final class AppModel: ObservableObject {
             let url = workspace.urlForApplication(withBundleIdentifier: id)
             let policy = Prefs.policy(for: id)
             let clipboard = Prefs.clipboardOverride(for: id)
+            // A missing Claude whose Esc entry nobody touched has nothing to show (the footnote is for Off apps).
+            if url == nil, Prefs.isUntouchedEscapeSeed(id) { return nil }
             if url == nil, Prefs.isBuiltInOff(id), policy == .off, clipboard == nil {
                 hidden.append(Prefs.builtInNames[id] ?? id)
                 return nil
@@ -540,7 +558,10 @@ final class AppModel: ObservableObject {
                 ?? Prefs.builtInNames[id] ?? id
             let icon = url.map { workspace.icon(forFile: $0.path) }
                 ?? NSImage(systemSymbolName: "app.dashed", accessibilityDescription: nil) ?? NSImage()
-            return AppRow(id: id, name: name, icon: icon, installed: url != nil, policy: policy, clipboard: clipboard)
+            return AppRow(
+                id: id, name: name, icon: icon, installed: url != nil, policy: policy, clipboard: clipboard,
+                escapeToApp: Prefs.escapeReachesApp(id)
+            )
         }
         // Installed apps first, then by name.
         .sorted { ($0.installed ? 0 : 1, $0.name.lowercased()) < ($1.installed ? 0 : 1, $1.name.lowercased()) }
@@ -549,6 +570,11 @@ final class AppModel: ObservableObject {
 
     func setPolicy(_ policy: VimPolicy, for bundleID: String) {
         Prefs.setPolicy(policy, for: bundleID)
+        policiesChanged()
+    }
+
+    func setEscapeToApp(_ reaches: Bool, for bundleID: String) {
+        Prefs.setEscapeReachesApp(reaches, for: bundleID)
         policiesChanged()
     }
 
@@ -592,6 +618,8 @@ final class AppModel: ObservableObject {
         controller.refreshPolicy()
         frontAppPolicy = frontApp.map { Prefs.policy(for: $0.bundleID) } ?? .auto
         frontAppClipboard = frontApp.flatMap { Prefs.clipboardOverride(for: $0.bundleID) }
+        frontAppEscapeToApp = frontApp.map { Prefs.escapeReachesApp($0.bundleID) } ?? false
+        controller.escapeToApps = Set(Prefs.escapeToAppIDs)
         reloadApps()
     }
 
