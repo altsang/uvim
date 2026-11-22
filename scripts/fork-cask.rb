@@ -14,9 +14,10 @@ cask "uvim-fork" do
   app "uvim.app"
 
   # Signed with an Apple Development certificate and not notarized, so Gatekeeper would refuse
-  # the downloaded copy; this tap is the owner's own, and the build is theirs.
-  postflight do
-    system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/uvim.app"]
+  # the downloaded copy; this tap is the owner's own, and the build is theirs. The flag is
+  # cleared on the staged copy, before `app` moves it (the move keeps its attributes).
+  preflight_steps do
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "uvim.app"], chdir: "."
   end
 
   uninstall quit: "io.github.celve.uvim"
